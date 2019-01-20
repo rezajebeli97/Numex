@@ -31,7 +31,7 @@
 (struct 1st (e1) #:transparent)
 (struct 2nd (e1) #:transparent)
 
-(struct lam  (nameopt formal body) #:transparent) ;; a recursive(?) 1-argument function
+(struct lam  (s1 s2 e) #:transparent) ;; a recursive(?) 1-argument function
 (struct apply (funexp actual)       #:transparent) ;; function call
 (struct closure (env fun) #:transparent) ;; a closure is not in "source" programs; it is what functions evaluate to
 ;; Problem 1
@@ -120,35 +120,30 @@
                
                ))]
 
-       
-        [(islthan? e)
-         (let ([v1 (eval-under-env (islthan-e1 e) env)]
-               [v2 (eval-under-env (islthan-e2 e) env)])
-           (if (and (num? v1)
-                    (num? v2))
-               (if (< (num-num v1) (num-num v2)) (num 1) (num 0))
-               (error "NUMEX islthan applied to non-number")))]
-        [(ifzero? e)
-         (let ([v1 (eval-under-env (ifzero-e1 e) env)])
+        [(ifnzero? e)
+         (let ([v1 (eval-under-env (ifnzero-e1 e) env)])
            (if (num? v1)
                (if (equal? (num-num v1) 0)
-                   (eval-under-env (ifzero-e2 e) env)
-                   (eval-under-env (ifzero-e3 e) env))
-               (error "NUMEX iszero applied to non-number")))]
-        [(ifgthan? e)
-         (let ([v1 (eval-under-env (ifgthan-e1 e) env)]
-               [v2 (eval-under-env (ifgthan-e2 e) env)])
+                   (eval-under-env (ifnzero-e3 e) env)
+                   (eval-under-env (ifnzero-e2 e) env))
+               (error "NUMEX isnotzero applied to non-number")))]
+        
+        [(ifleq? e)
+         (let ([v1 (eval-under-env (ifleq-e1 e) env)]
+               [v2 (eval-under-env (ifleq-e2 e) env)])
            (if (and (num? v1)
                     (num? v2))
                (if (> (num-num v1) (num-num v2))
-                   (eval-under-env (ifgthan-e3 e) env)
-                   (eval-under-env (ifgthan-e4 e) env))
-               (error "NUMEX ifgthan applied to non-number")))]
-        [(mlet? e)
-         (let ([v1 (eval-under-env (mlet-e1 e) env)])
-           (if (string? (mlet-s e))
-               (eval-under-env (mlet-e2 e) (cons (cons (mlet-s e) v1) env))
-               (error "NUMEX mlet applied to non-number or the name of the variable is not a string")))]
+                   (eval-under-env (ifleq-e4 e) env)
+                   (eval-under-env (ifleq-e3 e) env))
+               (error "NUMEX ifleq applied to non-number")))]
+        
+        [(with? e)
+         (let ([v1 (eval-under-env (with-e1 e) env)]
+               [s (with-s e)])
+           (if (string? s)
+               (eval-under-env (with-e2 e) (cons (cons s v1) env))
+               (error "NUMEX with applied to non-number or the variable name is not string")))]
         [(apair? e)
          (let ([v1 (eval-under-env (apair-e1 e) env)]
                [v2 (eval-under-env (apair-e2 e) env)])
@@ -168,26 +163,71 @@
                ))]
         [(ismunit? e)
          (let ([v (eval-under-env (ismunit-e e) env)])
-           (if (munit? v) (num 1) (num 0)))]
+           (if (munit? v) (bool #t) (bool #f)))]
 
-        [(fun? e)
-         (if (and (or (string? (fun-nameopt e)) (null? (fun-nameopt e))) (string? (fun-formal e)))
+        [(lam? e)
+         (let ([s1 (lam-s1 e)]
+               [s2 (lam-s2 e)])
+         (if (and (or (string? s1) (null? s1)) (string? s2))
              (closure env e)
-             (error "NUMEX function name and parameter name must be string"))]
-        [(call? e)
-         (let ([v (eval-under-env (call-actual e) env)]
-               [clsr (eval-under-env (call-funexp e) env)])
+             (error "NUMEX function name and parameter name must be string")))]
+        
+        [(apply? e)
+         (let ([actual (eval-under-env (apply-actual e) env)]
+               [clsr (eval-under-env (apply-funexp e) env)])
            (if (closure? clsr)
-               (let ([clsrFun (closure-fun clsr)])
-                 (if (null? (fun-nameopt clsrFun))
-                     (eval-under-env (fun-body clsrFun) (cons (cons (fun-formal clsrFun) v) (closure-env clsr)))
-                     (eval-under-env (fun-body clsrFun) (cons (cons (fun-nameopt clsrFun) clsr) (cons (cons (fun-formal clsrFun) v) (closure-env clsr))))))
-               (error "NUMEX call applied to non-function" e)))]
-         [(closure? e) e]
+               (let* ([clsrFun (closure-fun clsr)]
+                     [funname (lam-s1 clsrFun)]
+                     [arg (lam-s2 clsrFun)]
+                     [body (lam-e clsrFun)])
+                 (if (null? funname)
+                     (eval-under-env body (cons (cons arg actual) (closure-env clsr)))
+                     (eval-under-env body (cons (cons funname clsr) (cons (cons arg actual) (closure-env clsr))))))
+               (error "NUMEX apply applied to non-function" e)))]
+        
+        [(closure? e) e]
 
         [#t (error (format "bad NUMEX expression: ~v" e))]))
 
 ;; Do NOT change
 (define (eval-exp e)
   (eval-under-env e null))
-        
+
+;;Problem3
+(define (ifmunit e1 e2 e3) (cnd (ismunit e1) e2 e3))
+
+(define (with* bs e2) (
+                        cond
+                         [(null? bs) e2]
+                         [#t (with (caar bs) (cdar bs) (with* (cdr bs) e2))]
+                         ))
+
+(define (ifneq e1 e2 e3 e4) (
+                             cnd (iseq e1 e2) e4 e3
+                             )
+)
+(define (ifneq2 e1 e2 e3 e4)
+  (with "_x" e1 (with "_y" e2
+                      (ifleq (var "_y")(var "_x") e3
+                               (ifleq (var "_x") (var "_y") e3 e4)))))
+;;Problem4
+(define numex-filter (
+                       lam null "func"
+                           (lam "map" "list"
+                                (cnd (ismunit (var "list")) (munit)
+                                     (with "res" (apply (var "func") (1st (var "list")))
+                                                                        (ifnzero (var "res")
+                                                                             (apair (var "res") (apply (var "map") (2nd (var "list"))))
+                                                                             (apply (var "map") (2nd (var "list"))))
+                                                                             ))
+                           )
+                       ))
+
+(define numex-all-gt (
+                      lam null "i"
+                          (lam null "list"
+                               (apply (apply numex-filter (lam null "inp" (ifleq (var "inp") (var "i") (num 0) (num (var "inp")) ))) (var "list"))
+                               )
+                          ))
+
+ 

@@ -26,6 +26,7 @@
 (struct ifnzero (e1 e2 e3)    #:transparent)
 (struct ifleq (e1 e2 e3 e4)    #:transparent)
 (struct ismunit (e)     #:transparent) ;; if e1 is unit then 1 else 0
+(struct isbool (e)     #:transparent)
 
 (struct with (s e1 e2)    #:transparent)
 
@@ -68,8 +69,8 @@
 (define (eval-under-env e env)
   (cond [(var? e) (envlookup env (var-string e))]
         [(num? e)
-         (cond [(integer? (num-num e)) e]
-               [else (error "NUMEX num applied to non racket integer")])]
+         (if (integer? (num-num e)) e
+               (error "NUMEX num applied to non racket integer" e))]
         [(bool? e)
          (cond [(boolean? (bool-b e)) e]
                [else (error "NUMEX bool applied to non racket integer")])]
@@ -111,8 +112,7 @@
         [(cnd? e)
          (let ([v1 (eval-under-env (cnd-e1 e) env)])
            (if (bool? v1)
-                           (if (equal? (bool-b v1) #t) (let ([v2 (eval-under-env (cnd-e2 e) env)]) v2)
-                           (let ([v3 (eval-under-env (cnd-e3 e) env)]) v3)
+                           (if (equal? (bool-b v1) #t) (eval-under-env (cnd-e2 e) env) (eval-under-env (cnd-e3 e) env)
                            )
            (error "None bool condition")
            ))]
@@ -132,25 +132,29 @@
                            )
            (error "None bool first expression")
            ))]
+        ;[(iseq2? e)
+        ; (let ([v1 (eval-under-env (iseq-e1 e) env)]
+        ;       [v2 (eval-under-env (iseq-e2 e) env)])
+        ;   (if (and (num? v1)
+        ;            (num? v2))
+
+        ;       (if (equal? (num-num v1) (num-num v2)) (bool #t) (bool #f))
+;
+ ;              (if (and (bool? v1)
+  ;                  (bool? v2))
+;
+ ;              (if (equal? (bool-b v1) (bool-b v2)) (bool #t) (bool #f))
+  ;             
+   ;            (error "NUMEX iseq applied to non-number and non-boolean")
+;
+ ;              )
+  ;             
+   ;            ))]
         [(iseq? e)
          (let ([v1 (eval-under-env (iseq-e1 e) env)]
                [v2 (eval-under-env (iseq-e2 e) env)])
-           (if (and (num? v1)
-                    (num? v2))
-
-               (if (equal? (num-num v1) (num-num v2)) (bool #t) (bool #f))
-
-               (if (and (bool? v1)
-                    (bool? v2))
-
-               (if (equal? (bool-b v1) (bool-b v2)) (bool #t) (bool #f))
-               
-               (error "NUMEX iseq applied to non-number and non-boolean")
-
-               )
-               
-               ))]
-
+               (if (equal? v1 v2) (bool #t) (bool #f)))]
+        
         [(ifnzero? e)
          (let ([v1 (eval-under-env (ifnzero-e1 e) env)])
            (if (num? v1)
@@ -195,7 +199,9 @@
         [(ismunit? e)
          (let ([v (eval-under-env (ismunit-e e) env)])
            (if (munit? v) (bool #t) (bool #f)))]
-
+        [(isbool? e)
+         (let ([v (eval-under-env (isbool-e e) env)])
+           (if (bool? v) (bool #t) (bool #f)))]
         [(lam? e)
          (let ([s1 (lam-s1 e)]
                [s2 (lam-s2 e)])
@@ -254,9 +260,18 @@
 (define numex-all-gt (
                       lam null "i"
                           (lam null "list"
-                               (apply (apply numex-filter (lam null "inp" (ifleq (var "inp") (var "i") (num 0) (num (var "inp")) ))) (var "list"))
+                               (apply (apply numex-filter (lam null "inp" (ifleq (var "inp") (var "i") (num 0) (var "inp") ))) (var "list"))
                                )
                           ))
+
+
+(define numex-filter-rmbools (
+                       lam null "func"
+                           (lam "map" "list"
+                                (cnd (ismunit (var "list")) (munit)
+                                     (cnd (isbool (1st (var "list"))) (apply (var "map") (2nd (var "list"))) (apair (apply (var "func") (1st (var "list"))) (apply (var "map") (2nd (var "list"))))))
+                           )
+                       ))
 
  ;; Challenge Problem
 
@@ -296,8 +311,8 @@
         [(cnd? e)
         (let ([v1 (compute-free-vars-handler (cnd-e1 e))]
               [v2 (compute-free-vars-handler (cnd-e2 e))]
-              [v3 (compute-free-vars-handler (cnd-e2 e))])
-           (cons (cnd (car v1) (car v2) (car v3)) (set-union (cdr v1) (cdr v2) (cdr v3))))]
+              [v3 (compute-free-vars-handler (cnd-e3 e))])
+           (cons (cnd (car v1) (car v2) (car v3)) (set-union (cdr v1) (set-union (cdr v2) (cdr v3)))))]
         [(orelse? e)
         (let ([v1 (compute-free-vars-handler (orelse-e1 e))]
               [v2 (compute-free-vars-handler (orelse-e2 e))])
@@ -334,10 +349,10 @@
            (cons (1st (car v1)) (cdr v1)))]
         [(2nd? e)
           (let ([v1 (compute-free-vars-handler (2nd-e1 e))])
-           (cons (second (car v1)) (cdr v1)))]
+           (cons (2nd (car v1)) (cdr v1)))]
         [(ismunit? e)
           (let ([v1 (compute-free-vars-handler (ismunit-e e))])
-           (cons (neg (car v1)) (cdr v1)))]
+           (cons (ismunit (car v1)) (cdr v1)))]
 
         [(lam? e)
           (let ([cfvf (compute-free-vars-handler (lam-e e))])
@@ -418,25 +433,28 @@
                            )
            (error "None bool first expression")
            ))]
+ ;       [(iseq? e)
+ ;        (let ([v1 (eval-under-env-c (iseq-e1 e) env)]
+ ;              [v2 (eval-under-env-c (iseq-e2 e) env)])
+ ;          (if (and (num? v1)
+ ;                   (num? v2))
+;
+ ;              (if (equal? (num-num v1) (num-num v2)) (bool #t) (bool #f))
+;
+ ;              (if (and (bool? v1)
+  ;                  (bool? v2))
+;
+ ;              (if (equal? (bool-b v1) (bool-b v2)) (bool #t) (bool #f))
+  ;             
+   ;            (error "NUMEX iseq applied to non-number and non-boolean")
+;
+ ;              )
+  ;             
+   ;            ))]
         [(iseq? e)
-         (let ([v1 (eval-under-env-c (iseq-e1 e) env)]
-               [v2 (eval-under-env-c (iseq-e2 e) env)])
-           (if (and (num? v1)
-                    (num? v2))
-
-               (if (equal? (num-num v1) (num-num v2)) (bool #t) (bool #f))
-
-               (if (and (bool? v1)
-                    (bool? v2))
-
-               (if (equal? (bool-b v1) (bool-b v2)) (bool #t) (bool #f))
-               
-               (error "NUMEX iseq applied to non-number and non-boolean")
-
-               )
-               
-               ))]
-
+         (let ([v1 (eval-under-env (iseq-e1 e) env)]
+               [v2 (eval-under-env (iseq-e2 e) env)])
+               (if (equal? v1 v2) (bool #t) (bool #f)))]
         [(ifnzero? e)
          (let ([v1 (eval-under-env-c (ifnzero-e1 e) env)])
            (if (num? v1)
